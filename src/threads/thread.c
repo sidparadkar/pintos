@@ -32,10 +32,8 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
-/* This list will contain all of the sleeping threads in the THREAD_WAITING
-   state. This is when the sechduler has not yet sechduled this thread, so intead of
-of using the old time_sleep implementation where it would spin, this list will be able 
-to hold this thread along with any other, with an assocaited "SLEEP" time.*/
+
+/*[Project #1: AlarmClock]  This is when the sechduler has not yet sechduled this thread, so intead of  using the old time_sleep implementation where it would spin, this list will be able to hold this thread along with any other, with an assocaited "SLEEP" time.*/
 static struct list waiting_list;
 static struct lock waiting_list_lock;
 /* Idle thread. */
@@ -157,9 +155,11 @@ thread_tick (void)
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 
-	wakeup_thread();
+   //[Project #1: AlarmClock]//	
+   wakeup_thread();
 }
 
+//[Project #1: AlarmClock]//
 void wakeup_thread(void)
 {
 	/*
@@ -192,6 +192,7 @@ void wakeup_thread(void)
 	}				
 }
 
+//[Project #1: AlarmClock]//
 bool sleep_list_less_func(const struct list_elem *a , const struct list_elem *b, void *aux UNUSED)
 {
 	const struct thread *TH_A , *TH_B;
@@ -200,6 +201,7 @@ bool sleep_list_less_func(const struct list_elem *a , const struct list_elem *b,
 	return TH_A->sleeping_time < TH_B->sleeping_time;
 }
 
+//[Project #1: AlarmClock]//
 void thread_sleep(int64_t sleep_time)
 {
 	//this is the main function that is going to be called when the timer.c's sleep functions is called . This will place the threads with their assocaited sleeping_time's within the waiting_list.This needs to be done atomically(no interupts). We take the current thread make sure that the current thread was running, and then place the current thread with a sleeping_time assocaited with it in the waiting list , and block the thread. This will place the thread in the THREAD_BLOCKED status, so when we wake up the thread, essentailly we are going from THREAD_BLOCKED status to THREAD_RUNNING.

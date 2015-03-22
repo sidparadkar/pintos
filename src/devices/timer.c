@@ -89,7 +89,8 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  //Essentially, what's happening now is that one thread runs and if another thread comes in it "spins". Meaning it keeps looping for time = ticks, but this spinning prevents any other thread from coming in. So we need to create a list of "sleeping" threads, which will get get woke up when the time is correct.
+//project #1: Alarm Clock
+//Essentially, what's happening now is that one thread runs and if another thread comes in it "spins". Meaning it keeps looping for time = ticks, but this spinning prevents any other thread from coming in. So we need to create a list of "sleeping" threads, which will get get woke up when the time is correct.
 
 // we will need to change the following files	
 // timer.c
