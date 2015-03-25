@@ -101,6 +101,12 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+	
+    int thread_original_priority;
+    bool is_donated_priority; // to account for a thread's priority having acquired from some other thread.
+    struct list locks;
+    struct lock *lock_held_by;
+
   };
 
 /* If false (default), use round-robin scheduler.
@@ -142,5 +148,11 @@ int thread_get_load_avg (void);
 //[Project #1: AlarmClock]//
 void thread_sleep (int64_t sleep_time);
 void wakeup_thread(void );
+
+//[Project #1: prioritySchedule]//
+void thread_yeild_current(struct thread *);
+void set_given_thread_priority( struct thread* , int, bool);
+void donate_thread_priority(struct thread * , int);
+
 
 #endif /* threads/thread.h */
