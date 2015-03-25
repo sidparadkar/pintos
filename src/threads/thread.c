@@ -92,7 +92,7 @@ static bool check_priority(const struct list_elem *a, const struct list_elem *b,
   const struct thread *TH_A , *TH_B;
 	TH_A = list_entry(a,const struct thread, elem);
 	TH_B = list_entry(b,const struct thread, elem);
-	return TH_A->priority < TH_B->priority;
+	return TH_A->priority > TH_B->priority;
 }
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in

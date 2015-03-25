@@ -41,14 +41,14 @@ static bool check_priority(const struct list_elem *a, const struct list_elem *b,
   const struct thread *TH_A , *TH_B;
 	TH_A = list_entry(a,const struct thread, elem);
 	TH_B = list_entry(b,const struct thread, elem);
-	return TH_A->priority < TH_B->priority;
+	return TH_A->priority > TH_B->priority;
 }
 
 static bool check_lock_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
 	const struct lock *A = list_entry(a,struct lock, elem_lock);
 	const struct lock *B = list_entry(b,struct lock, elem_lock);
-	return A->priority_lock < B->priority_lock;
+	return A->priority_lock >= B->priority_lock;
 }
 
 
