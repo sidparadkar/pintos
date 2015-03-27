@@ -106,6 +106,9 @@ struct thread
     bool is_donated_priority; // to account for a thread's priority having acquired from some other thread.
     struct list locks;
     struct lock *lock_held_by;
+ 
+    int nice;
+    int recent_cpu;
 
   };
 
@@ -154,5 +157,13 @@ void thread_yeild_current(struct thread *);
 void set_given_thread_priority( struct thread* , int, bool);
 void donate_thread_priority(struct thread * , int);
 
+
+//[Project #1: AdvancedPriority]
+
+void thread_calc_advanced_priority (void);
+void calc_advanced_priority (struct thread *, bool ForALL, void *aux);
+void thread_calc_recent_cpu (void);
+void calc_recent_cpu (struct thread *, bool ForALL, void *aux);
+void calc_load_avg (void);
 
 #endif /* threads/thread.h */
