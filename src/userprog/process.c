@@ -17,6 +17,9 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
+#include "threads/malloc.h"
+#include "devices/timer.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -28,8 +31,18 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+	printf("in Process.c Execute function \n"); 
+	printf("%s - Filename in Execution Function \n ",file_name); 
+	char *fn_copy;
   tid_t tid;
+
+	//This is the main entry point for any process.. the process_execute is called once the page has been loaded..it is here we will have to parse the arguments.
+
+	struct child_status *child_thread_status;
+	struct thread *curr;
+
+	
+
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -38,10 +51,29 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+	char *command_name , *process_arguments; // we need to made the thread, and pass this thread
+	//char **args = calloc((strlen (fn_copy)/2+1,sizeof(char *));
+	command_name = strtok_r(fn_copy , " ",&process_arguments); // this will create a copy of the file name, along with the arguments seperated via a space.. this will help in debugging as well, when we need to see if a particular command is not working. This will be the parameter that we will pass inorder to create a new thread, instead of the current implementation of just passing the file_name and the copy, we will pass the command(file copy + arguments) and the args
+	printf("%s - CommandName in Execution Function \n ",command_name); 
+	printf("%s - process_Arguments in Execution Function \n ",process_arguments); 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+//now passing the args and the command name which we want to execute.
+  tid = thread_create (command_name , PRI_DEFAULT, start_process, process_arguments);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+	else
+	{
+		curr = thread_current();
+		child_thread_status = calloc ( 1 , sizeof *child_thread_status);
+//here we need to initialze the thread that will be taking care of executing the file..so we initialize the child_thread_status with the current Tid and set all the bools to false.
+		if(child_thread_status != NULL)
+		{
+			child_thread_status->child_id = tid;
+			child_thread_status->is_marked_for_exit = false;
+			child_thread_status->syscall_wait_called = false;
+			list_push_back(&curr->list_of_children, &child_thread_status->child_statuses);
+		}
+	}
   return tid;
 }
 
@@ -50,22 +82,50 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
+	printf("in Process.c start_process \n");  
+	
   char *file_name = file_name_;
+printf ("fileName in start_process:%s: open failed\n", file_name);
   struct intr_frame if_;
   bool success;
+	//this is the handler for the new process..we need to check the locks and check the status of the file load in order to proceed with the start..
+	int load_status;
+	
+
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+	struct thread *t ;
+	 t= thread_current();
+printf ("fileName in start_process:%s: open failed\n", t->name);
+  success = load (t->name, &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
   if (!success) 
-    thread_exit ();
+    //if the process is not successful we set the status to -1
+		load_status = -1 ;
+	else
+		load_status = 1; // success
+	
+	//here we will check if the current thread has a parent thread that is waiting on the completion of the load for this child(current thread).. we compare the status for each the child status the parent thread has and the loadstatus of the current thread..and we set the parent thread child's thread status property to the load_status..more for bookkeeping purposes...this will also help to keep track of what thread is doing what.	
+	struct thread *current_thread;
+	struct thread *curr_parent;
+	current_thread = thread_current();
+	curr_parent = get_thread(current_thread->parent_thread_id); // get the thread by using the property parent_thread_id on the current thread.
+	if(curr_parent !=NULL)
+	{
+		lock_acquire(&curr_parent->child_lock);
+		curr_parent->child_load_status = load_status;
+		cond_signal(&curr_parent->child_cond, &curr_parent->child_lock);
+		lock_release(&curr_parent->child_lock);
+	}
+	
+	if(!success)
+		thread_exit ();
 
+	palloc_free_page (pg_round_down(file_name));
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -86,9 +146,45 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+//this will have to change a lot because the process wait will occure if the current child thread is doing some processing and the parent thread has to wait upon the compeletion of this process.
+
+	int status = -2123; // inintialze with a dummy number
+	struct thread *current_thread;
+	struct child_status *child_status = NULL;
+	struct list_elem *element;
+
+	current_thread = thread_current();
+	element = list_tail (&current_thread->list_of_children);
+	
+	while ((element = list_prev (element)) != list_head (&current_thread->list_of_children))
+ 	{
+		 child_status = list_entry(element, struct child_status, child_statuses);
+		 if (child_status->child_id == child_tid)
+		 		break;
+ 	}
+
+	 if (child_status == NULL)
+	 		status = -1;
+	 else
+	 {
+		 lock_acquire(&current_thread->child_lock);
+		 while (get_thread (child_tid) != NULL)
+		 	cond_wait (&current_thread->child_cond,&current_thread->child_lock);
+		 if (!child_status->is_marked_for_exit || child_status->syscall_wait_called)
+		 		status = -1;
+		 else
+		 {
+			 status = child_status->exit_status;
+			 child_status->syscall_wait_called = true;
+		 }
+		 lock_release(&current_thread->child_lock);
+	 }
+
+
+	
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -97,6 +193,11 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+// the process exit helps to define the way the process will have to behave when the exit is called..so the nature of the exit in our case has to depend on the status of the process of the process...couple of issues are that we need to be able to tell when the exit was due to a exception or just the process finished processing....
+	struct thread *parent;
+	struct list_elem *e;
+	struct list_elem *next;
+	struct child_status *child;
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -114,7 +215,36 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+	 /*free children list*/
+	 e = list_begin (&cur->list_of_children);
+	 while (e != list_tail(&cur->list_of_children))
+	 {
+		 next = list_next (e);
+		 child = list_entry (e, struct child_status, child_statuses);
+		 list_remove (e);
+		 free (child);
+		 e = next;
+	 }
+
+	 /*re-enable the file's writable property*/
+	 if (cur->current_executable != NULL)
+	 	file_allow_write (cur->current_executable);
+
+	 /*free files whose owner is the current thread*/
+	 close_file_by_owner (cur->tid);
+
+	 parent = get_thread (cur->parent_thread_id);
+	 if (parent != NULL)
+	 {
+		 lock_acquire (&parent->child_lock);
+		 if (parent->child_load_status == 0)
+			 parent->child_load_status = -1;
+	
+		 cond_signal (&parent->child_cond, &parent->child_lock);
+		 lock_release (&parent->child_lock);
+	 }
 }
+
 
 /* Sets up the CPU for running user code in the current
    thread.
@@ -132,12 +262,15 @@ process_activate (void)
   tss_update ();
 }
 
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
 /* ELF types.  See [ELF1] 1-2. */
 typedef uint32_t Elf32_Word, Elf32_Addr, Elf32_Off;
 typedef uint16_t Elf32_Half;
+
+
 
 /* For use with ELF types in printf(). */
 #define PE32Wx PRIx32   /* Print Elf32_Word in hexadecimal. */
@@ -165,20 +298,7 @@ struct Elf32_Ehdr
     Elf32_Half    e_shstrndx;
   };
 
-/* Program header.  See [ELF1] 2-2 to 2-4.
-   There are e_phnum of these, starting at file offset e_phoff
-   (see [ELF1] 1-6). */
-struct Elf32_Phdr
-  {
-    Elf32_Word p_type;
-    Elf32_Off  p_offset;
-    Elf32_Addr p_vaddr;
-    Elf32_Addr p_paddr;
-    Elf32_Word p_filesz;
-    Elf32_Word p_memsz;
-    Elf32_Word p_flags;
-    Elf32_Word p_align;
-  };
+
 
 /* Values for p_type.  See [ELF1] 2-3. */
 #define PT_NULL    0            /* Ignore. */
@@ -195,9 +315,25 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
-static bool validate_segment (const struct Elf32_Phdr *, struct file *);
-static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
+/* Program header.  See [ELF1] 2-2 to 2-4.
+   There are e_phnum of these, starting at file offset e_phoff
+   (see [ELF1] 1-6). */
+struct Elf32_Phdr
+  {
+    Elf32_Word p_type;
+    Elf32_Off  p_offset;
+    Elf32_Addr p_vaddr;
+    Elf32_Addr p_paddr;
+    Elf32_Word p_filesz;
+    Elf32_Word p_memsz;
+    Elf32_Word p_flags;
+    Elf32_Word p_align;
+  };
+
+//here is the main code..when setting up the stack we need to pass in the file name,because we are going to assign this name to the thread that will execute this file.
+ static bool setup_stack (void **esp,const char *filename);
+ static bool validate_segment (const struct Elf32_Phdr *, struct file *);
+ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
@@ -208,7 +344,9 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
+	printf ("load: %s: open failed\n", file_name);
   struct thread *t = thread_current ();
+	//string threadName = t->name;
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
@@ -222,13 +360,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open(file_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
-
+	t->current_executable = file;
+	file_deny_write(file);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -302,7 +441,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp,file_name))
     goto done;
 
   /* Start address. */
@@ -312,7 +451,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
@@ -322,7 +460,7 @@ static bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
-static bool
+ static bool
 validate_segment (const struct Elf32_Phdr *phdr, struct file *file) 
 {
   /* p_offset and p_vaddr must have the same page offset. */
@@ -379,7 +517,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
-static bool
+ static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
@@ -426,20 +564,101 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool
-setup_stack (void **esp) 
+ static bool
+setup_stack (void **esp,const char *file_name) 
 {
-  uint8_t *kpage;
-  bool success = false;
+		uint8_t *kpage;
+		bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
+		kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+		if (kpage != NULL) 
+		  {
+		    success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+		    if (success) 
+				{
+				 *esp = PHYS_BASE -12;
+
+				 uint8_t *argstr_head;
+				 char *cmd_name = thread_current ()->name;
+				 int strlength, total_length;
+				 int argc =0;
+
+				 /*push the arguments string into stack*/
+				 strlength = strlen(file_name) + 1;
+				 *esp -= strlength;
+				 memcpy(*esp, file_name, strlength);
+				 total_length += strlength;
+
+				 /*push command name into stack*/
+				 strlength = strlen(cmd_name) + 1;
+				 *esp -= strlength;
+				 argstr_head = *esp;
+				 memcpy(*esp, cmd_name, strlength);
+				 total_length += strlength;
+
+				 /*set alignment, get the starting address, modify *esp */
+				 *esp -= 4 - total_length % 4;
+
+				 /* push argv[argc] null into the stack */
+				 *esp -= 4;
+				 * (uint32_t *) *esp = (uint32_t) NULL;
+
+				 /* scan throught the file name with arguments string downward,
+				 * using the cur_addr and total_length above to define boundary.
+				 * omitting the beginning space or '\0', but for every encounter
+				 * after, push the last non-space-and-'\0' address, which is current
+				 * address minus 1, as one of argv to the stack, and set the space to
+				 * '\0', multiple adjancent spaces and '0' is treated as one.
+				 */
+				 int i = total_length - 1;
+				 /*omitting the starting space and '\0' */
+				 while (*(argstr_head + i) == ' ' || *(argstr_head + i) == '\0')
+				 {
+					 if (*(argstr_head + i) == ' ')
+					 {
+					 	*(argstr_head + i) = '\0';
+					 }
+				 	i--;
+				 }
+
+				 /*scan through args string, push args address into stack*/
+				 char *mark;
+				 for (mark = (char *)(argstr_head + i); i > 0;
+				 		i--, mark = (char*)(argstr_head+i))
+				 {
+					 /*detect args, if found, push it's address to stack*/
+					 if ( (*mark == '\0' || *mark == ' ') &&
+					 (*(mark+1) != '\0' && *(mark+1) != ' '))
+					 {
+						 *esp -= 4;
+						 * (uint32_t *) *esp = (uint32_t) mark + 1;
+						 argc++;
+					 }
+					 /*set space to '\0', so that each arg string will terminate*/
+					 if (*mark == ' ')
+					 	*mark = '\0';
+				 }
+
+				 /*push one more arg, which is the command name, into stack*/
+				 *esp -= 4;
+				 * (uint32_t *) *esp = (uint32_t) argstr_head;
+				 argc++;
+
+				 /*push argv*/
+				 * (uint32_t *) (*esp - 4) = *(uint32_t *) esp;
+				 *esp -= 4;
+
+				 /*push argc*/
+				 *esp -= 4;
+				 * (int *) *esp = argc;
+
+				 /*push return address*/
+				 *esp -= 4;
+				 * (uint32_t *) *esp = 0x0;
+	 } else
+			palloc_free_page (kpage);
+			
+			
     }
   return success;
 }

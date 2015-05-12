@@ -266,6 +266,7 @@ tid_t
 thread_create (const char *name, int priority,
                thread_func *function, void *aux) 
 {
+	printf("%s - Thread Name  \n ",name); 
   struct thread *t;
   struct kernel_thread_frame *kf;
   struct switch_entry_frame *ef;
@@ -283,6 +284,10 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  printf("%s - Thread Name after thread-init  \n ",t->name); 
+
+  //the newly created thread will be its own parent, unless its created by another thread, which in that case the other thread's TID would be assigned to this thread's parent.
+	t->parent_thread_id = thread_current () -> tid;
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack' 
@@ -792,7 +797,16 @@ init_thread (struct thread *t, const char *name, int priority)
 			 t->recent_cpu = thread_get_recent_cpu ();
 	 }
 	}	
-	
+
+	//now when the thread class is going to be called from the userprog we need to initialize the child thread. The issue here is this..when the exec is called by the parent process, it will run the system call on a child, so the child need to communicate information back to the parent using the right type of synchronization.
+
+#ifdef USERPROG
+	t->child_load_status = 0; // struct which will contain all of the information pretainting to the child thread's status..locks..bool for if its been exited..and a list element which will hold the any other child's status that this thread is concerend with.
+	lock_init(&t->child_lock);//acquire lock on the child
+	cond_init(&t->child_cond);//condition variable lock for the child
+	list_init(&t->list_of_children);//child threads for current child
+#endif
+	list_push_back(&all_list,&t->allelem);
 
 }
 
@@ -909,3 +923,21 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+//We need to have a way to get a particular thread using just its TID, this will become very important when we have to make system calls, since we will have to figure out the parent thread of the curernt thread on which the system call was made, so we can upate the status of the thread, parase teh arguments correctly...etc
+
+struct thread *get_thread(tid_t ID)
+{
+	struct list_elem *element;
+	struct thread *thread_needed;
+	element = list_tail(&all_list);
+	//essentially we wanna keep looping the list all_list, which contains all of the thread until the last element is equal to the first element.
+	while((element = list_prev(element)) != list_head(&all_list))
+	{
+		thread_needed = list_entry(element,struct thread,allelem);
+		if(thread_needed->tid == ID && thread_needed->status != THREAD_DYING)
+			return thread_needed;
+
+	}
+ return NULL; // only if we try to search for a ID that doesnt exist..should never happen will needt to check for this null.
+}

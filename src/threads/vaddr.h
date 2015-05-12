@@ -20,6 +20,9 @@
 #define PGSIZE  (1 << PGBITS)              /* Bytes in a page. */
 #define PGMASK  BITMASK(PGSHIFT, PGBITS)   /* Page offset bits (0:12). */
 
+//We need a way to define if a particular pointer location is a valid pointer location..since this will be a massive issue if the file being pointed to by the thread is not valid
+bool valid_ptr(const void *ptr);
+
 /* Offset within a page. */
 static inline unsigned pg_ofs (const void *va) {
   return (uintptr_t) va & PGMASK;

@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/math.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -180,6 +181,26 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  // Project #1: part 3
+  // we know that every threads priority has to be recalculated every 4th time interval. Also everytime an interupt is thrown we need to increment the recent_cpu for the thread that was running,since the recent cpu keeps track of the current cpu usuage by a thread.
+// because of some of the way the TIMER_FREQ has been setup and an used by the tests, we need to make sure that recent_cpu and the load_avg are calculated every second exactly when the timer_ticks % timer_freq == 0 , exactly 1 second.
+
+	if(thread_mlfqs)
+	{
+		if(thread_current()->status == THREAD_RUNNING)
+			{
+				thread_current()->recent_cpu = ADD_INT(thread_current()-> recent_cpu ,1);
+			}
+		if(ticks % TIMER_FREQ == 0)
+			{
+				calc_load_avg();
+				calc_recent_cpu(NULL,true,NULL);
+			} 
+		if(ticks % 4 ==0)
+			{
+				calc_advanced_priority(NULL,true,NULL);				
+			}
+	}	
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

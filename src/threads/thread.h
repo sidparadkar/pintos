@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "filesys/file.h"// since we are adding the file 'object' to our thread.
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +25,28 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+//child status struct..essentially this will keep track of the child and its current status. The properties syscall_wait_called and is_marked_for_exit will be used to keep track of any thread that is, (A) is been waited on by the system call wait (B) has been marked for exit by the exist system call. This will help us keep track of threads being used for system calls.
+struct child_status
+{
+	tid_t child_id;
+	bool is_marked_for_exit;
+	bool syscall_wait_called;
+	int exit_status;
+	struct list_elem child_statuses;
+
+};
+
+struct waiting_child
+ {
+	 tid_t child_id; // thread_id
+	 int child_exit_status;
+	bool is_terminated_by_kernel;
+	 bool has_been_waited;
+	 struct list_elem elem_waiting_child; // itself
+ };
+
+
 
 /* A kernel thread or user process.
 
@@ -85,7 +109,7 @@ struct thread
     /* Owned by thread.c. */
     tid_t tid;                          /* Thread identifier. */
     enum thread_status status;          /* Thread state. */
-    char name[16];                      /* Name (for debugging purposes). */
+    char name[50];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int64_t sleeping_time;                /*//[Project #1: AlarmClock]// Time for the thread will be sleeping for */ 
@@ -97,6 +121,21 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    tid_t parent_thread_id;
+		
+		// we need to a way to store the child thread's status depending upon the exit status of its system load call. So essentially we will have 3 different status's.
+		// --> 0 chilling..nothing has been loaded
+		// --> -1 failed in load
+		// --> 1 sucessfully loaded 
+
+		int child_load_status;
+		//our monitors(aka locks) which we will use to keep track if the child thread is being handled by the system call to wait, and if the child is waiting for load to occur.
+	   struct lock child_lock;
+		 struct condition child_cond;
+
+		 struct list list_of_children;
+		 // this file will represent the current file that is being run by the thread. so this file will be locked when the thread is executing it , and when the thread is done executing the file will again be opened to write.
+		 struct file *current_executable;
 #endif
 
     /* Owned by thread.c. */
@@ -109,8 +148,11 @@ struct thread
  
     int nice;
     int recent_cpu;
+ 
+    
 
   };
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -165,5 +207,7 @@ void calc_advanced_priority (struct thread *, bool ForALL, void *aux);
 void thread_calc_recent_cpu (void);
 void calc_recent_cpu (struct thread *, bool ForALL, void *aux);
 void calc_load_avg (void);
+
+struct thread *get_thread(tid_t);
 
 #endif /* threads/thread.h */
