@@ -65,6 +65,8 @@ syscall_init (void)
 	lock_init(&fs_lock);
 }
 
+
+// all of these are system calls..the issue is that the file is not being open so the code is not even reaching here..
  static void syscall_handler (struct intr_frame *f ) 
 {
   // ONE GIANT SWTICH CASE
@@ -437,7 +439,7 @@ allocate_fd ()
 }
 
 void
-close_file_by_owner (tid_t tid)
+close_curr_File(tid_t tid)
 {
 	 struct list_elem *e;
 	 struct list_elem *next;

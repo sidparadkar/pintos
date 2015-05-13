@@ -53,12 +53,12 @@ process_execute (const char *file_name)
 
 	char *command_name , *process_arguments; // we need to made the thread, and pass this thread
 	//char **args = calloc((strlen (fn_copy)/2+1,sizeof(char *));
-	command_name = strtok_r(fn_copy , " ",&process_arguments); // this will create a copy of the file name, along with the arguments seperated via a space.. this will help in debugging as well, when we need to see if a particular command is not working. This will be the parameter that we will pass inorder to create a new thread, instead of the current implementation of just passing the file_name and the copy, we will pass the command(file copy + arguments) and the args
+	file_name = strtok_r((char *) file_name , " ",&process_arguments); // this will create a copy of the file name, along with the arguments seperated via a space.. this will help in debugging as well, when we need to see if a particular command is not working. This will be the parameter that we will pass inorder to create a new thread, instead of the current implementation of just passing the file_name and the copy, we will pass the command(file copy + arguments) and the args
 	printf("%s - CommandName in Execution Function \n ",command_name); 
 	printf("%s - process_Arguments in Execution Function \n ",process_arguments); 
   /* Create a new thread to execute FILE_NAME. */
 //now passing the args and the command name which we want to execute.
-  tid = thread_create (command_name , PRI_DEFAULT, start_process, process_arguments);
+  tid = thread_create (file_name , PRI_DEFAULT, start_process, process_arguments);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
 	else
@@ -85,7 +85,9 @@ start_process (void *file_name_)
 	printf("in Process.c start_process \n");  
 	
   char *file_name = file_name_;
-printf ("fileName in start_process:%s: open failed\n", file_name);
+	char *process_arguments;
+  file_name = strtok_r((char *) file_name , " ",&process_arguments);
+printf ("fileName in start_process:%s \n", file_name);
   struct intr_frame if_;
   bool success;
 	//this is the handler for the new process..we need to check the locks and check the status of the file load in order to proceed with the start..
@@ -100,8 +102,8 @@ printf ("fileName in start_process:%s: open failed\n", file_name);
   if_.eflags = FLAG_IF | FLAG_MBS;
 	struct thread *t ;
 	 t= thread_current();
-printf ("fileName in start_process:%s: open failed\n", t->name);
-  success = load (t->name, &if_.eip, &if_.esp);
+printf ("fileName in start_process:%s \n", file_name);
+  success = load (file_name, &if_.eip, &if_.esp);
 
   if (!success) 
     //if the process is not successful we set the status to -1
@@ -344,7 +346,7 @@ struct Elf32_Phdr
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
-	printf ("load: %s: open failed\n", file_name);
+	printf ("load: %s \n", file_name);
   struct thread *t = thread_current ();
 	//string threadName = t->name;
   struct Elf32_Ehdr ehdr;
